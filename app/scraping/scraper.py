@@ -16,6 +16,9 @@ def scrape_sold_properties(suburb: str, state: str):
 
     # Send the GET request with headers
     response = requests.get(url, headers=headers)
+    
+print(response.text[:2000])  # print first 2000 chars of the page HTML
+
 
     # Handle rate-limiting (HTTP 429)
     if response.status_code == 429:
