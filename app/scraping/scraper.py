@@ -1,60 +1,69 @@
 import requests
 from bs4 import BeautifulSoup
-from typing import List, Dict
 
-def scrape_sold_properties(suburb: str, state: str) -> List[Dict]:
-    formatted_suburb = suburb.replace(' ', '+').lower()
-    url = f"https://www.realestate.com.au/sold/in-{formatted_suburb}%2c+{state}/list-1"
+def scrape_sold_properties(suburb: str, state: str):
+    # Construct the URL for the sold listings page based on suburb and state
+    url = f"https://www.realestate.com.au/sold/in-{suburb}%2c+{state}/list-1"
 
+    # Add headers to mimic a real browser
     headers = {
-        "User-Agent": "Mozilla/5.0"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
+        )
     }
 
+    # Send the GET request with headers
     response = requests.get(url, headers=headers)
+
+    # Handle rate-limiting (HTTP 429)
+    if response.status_code == 429:
+        print("⚠️ Rate limited by the site. Try again later.")
+        return []
+
     if response.status_code != 200:
         raise Exception(f"Failed to fetch data from {url} - Status {response.status_code}")
 
-    soup = BeautifulSoup(response.text, 'html.parser')
+    # Parse the HTML with BeautifulSoup
+    soup = BeautifulSoup(response.text, "html.parser")
+
     results = []
 
-    listings = soup.select("div.residential-card__content-wrapper")
+    # Find each property listing on the page
+    listings = soup.find_all("div", class_="residential-card__content-wrapper")
+
     for listing in listings:
         try:
-            price_text = listing.select_one("span.property-price").text.strip()
-            price = int(price_text.replace('$', '').replace(',', '').strip())
+            # Extract the property address
+            address = listing.find("h2", class_="residential-card__address-heading").get_text(strip=True)
 
-            address = listing.select_one("a.residential-card__details-link span").text.strip()
+            # Extract the price
+            price_text = listing.find("span", class_="property-price").get_text(strip=True)
+            price = int(price_text.replace("$", "").replace(",", ""))
 
-            beds_tag = listing.select("li[aria-label*='bedrooms'] p")
-            beds = int(beds_tag[0].text.strip()) if beds_tag else None
+            # Extract features like beds, baths, cars
+            features = listing.find_all("li", class_="styles__Li-sc-xhfhyt-0")
+            beds = int(features[0].get_text(strip=True)) if len(features) > 0 else None
+            baths = int(features[1].get_text(strip=True)) if len(features) > 1 else None
+            cars = int(features[2].get_text(strip=True)) if len(features) > 2 else None
 
-            baths_tag = listing.select("li[aria-label*='bathrooms'] p")
-            baths = int(baths_tag[0].text.strip()) if baths_tag else None
+            # Optional: building size
+            size_elem = next((li for li in features if "m²" in li.get_text()), None)
+            size = size_elem.get_text(strip=True) if size_elem else None
 
-            cars_tag = listing.select("li[aria-label*='car spaces'] p")
-            car_spaces = int(cars_tag[0].text.strip()) if cars_tag else None
-
-            building_size_tag = listing.select("li[aria-label*='building size'] p")
-            land_size = building_size_tag[0].text.strip() if building_size_tag else None
-
-            property_type_tag = listing.select("ul.residential-card__primary > p")
-            property_type = property_type_tag[-1].text.strip() if property_type_tag else None
-
-            sold_span = listing.find("span", string=lambda t: t and "Sold on" in t)
-            sold_date = sold_span.text.replace("Sold on", "").strip() if sold_span else None
-
+            # Append to results
             results.append({
                 "address": address,
-                "sold_price": price,
-                "beds": beds,
-                "baths": baths,
-                "car_spaces": car_spaces,
-                "building_size": land_size,
-                "property_type": property_type,
-                "sold_date": sold_date
+                "price": price,
+                "bedrooms": beds,
+                "bathrooms": baths,
+                "car_spaces": cars,
+                "size": size
             })
 
         except Exception as e:
-            continue  # Skip listings that fail parsing
+            print(f"⚠️ Skipped a listing due to error: {e}")
+            continue
 
     return results
